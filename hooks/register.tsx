@@ -25,6 +25,9 @@ const idleMinutes = atom({ plugin: 'aim-theme', key: 'idleMinutes' } as const, 0
 const tzOffset = atom({ plugin: 'aim-theme', key: 'tzOffsetMinutes' } as const, 0)
 const buddies = atom({ plugin: 'aim-theme', key: 'buddies' } as const, [])
 const isAimSpeak = atom({ plugin: 'aim-theme', key: 'isAimSpeak' } as const, false)
+const buddyAlert = atom({ plugin: 'aim-theme', key: 'buddyAlert' } as const, null)
+
+const PURPLE = '#800080'
 
 // AIM was a light-mode program, so this look is light only.
 const { theme, problems } = makeColors({
@@ -116,7 +119,7 @@ const toolLine = (tool: string, input: Record<string, unknown>, isDone: boolean)
       return `${BUDDY_NAME} is surfing the web: ${clip(String(input.query ?? input.url ?? ''), 50)}`
     case 'Agent':
     case 'Task':
-      return `${screenNameFor(input.description)} has signed ${isDone ? 'off' : 'on'}.`
+      return `${screenNameFor(input.description)} ${isDone ? 'went away.' : 'has signed on.'}`
     default:
       return isDone ? `${BUDDY_NAME} has accepted your request (${tool})` : `${BUDDY_NAME} sent a request: ${tool}`
   }
@@ -199,6 +202,36 @@ const isGraphical = (surface: string) => surface === 'desktop' || surface === 'm
 const play = ($: EngineInterface, asset: string) => {
   void $.audio.play({ asset }).catch(() => undefined)
 }
+
+// A buddy alert, like "xXglitterXx has signed on.": a notice row (the terminal
+// shows it; the model never reads it) and the IM status strip for 12 seconds.
+let alertTimer: Timer | undefined
+
+const announce = ($: EngineInterface, text: string) => {
+  void $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } }).catch(() => undefined)
+  void update($, buddyAlert, () => text).catch(() => undefined)
+  alertTimer?.cancel()
+  alertTimer = $.clock.after(12_000, () => {
+    void update($, buddyAlert, current => (current === text ? null : current)).catch(() => undefined)
+  })
+}
+
+// The first sentence of an agent's report, as a short away message:
+// code and markdown dropped, paths shortened to their file names.
+const awayFrom = (answer: string) => {
+  const line = answer
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[*_`#>]/g, '')
+    .replace(/(?:~|\.{0,2})?\/(?:[\w.@-]+\/)+([\w.@-]+)/g, '$1')
+    .split('\n')
+    .map(l => l.trim())
+    .find(l => l.length > 0)
+  const sentence = line?.split(/(?<=[.!?])\s/)[0] ?? ''
+
+  return clip(sentence.replace(/[.]+$/, ''), 70) || 'brb'
+}
+
+const isAgentTool = (tool: string) => tool === 'Agent' || tool === 'Task'
 
 // The time a message first showed up. Kept in memory, since drawing may not
 // write state; a reload stamps older messages with the reload's time.
@@ -315,7 +348,12 @@ export const register: Register = on => {
 
   on('command.run', { command: 'buddylist' }, async ($, e) => {
     if (e.args.trim() === 'clear') {
+      const leaving = (await read($, buddies)).filter(b => !b.isOnline && b.isSignedOff !== true)
       await update($, buddies, list => list.map(b => (b.isOnline ? b : { ...b, isSignedOff: true })))
+
+      for (const b of leaving) {
+        announce($, `${b.name} has signed off.`)
+      }
 
       return { text: 'Idle agents have signed off.', isTextDisplayOnly: true }
     }
@@ -344,7 +382,13 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) {
       const id = e.agentId
-      await update($, buddies, list => list.map(b => (b.id === id ? { ...b, isOnline: true } : b)))
+      const before = (await read($, buddies)).find(b => b.id === id)
+      await update($, buddies, list => list.map(b => (b.id === id ? { ...b, isOnline: true, awayMessage: undefined } : b)))
+
+      // A buddy that was away and is messaged again comes back.
+      if (before?.awayMessage !== undefined) {
+        announce($, `${before.name} has returned.`)
+      }
 
       return next(e)
     }
@@ -358,7 +402,16 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) {
       const id = e.agentId
-      await update($, buddies, list => list.map(b => (b.id === id ? { ...b, isOnline: false } : b)))
+      const message = awayFrom(e.answer)
+      await update($, buddies, list =>
+        list.map(b => (b.id === id ? { ...b, isOnline: false, awayMessage: message } : b)),
+      )
+      const buddy = (await read($, buddies)).find(b => b.id === id)
+
+      if (buddy !== undefined) {
+        announce($, `${buddy.name} went away: "${message}"`)
+        play($, 'sounds/signoff.wav')
+      }
 
       return next(e)
     }
@@ -403,6 +456,8 @@ export const register: Register = on => {
     if (spawned.agentId !== undefined) {
       const one: Buddy = { id: spawned.agentId, name: screenNameFor(e.description), isOnline: true }
       await update($, buddies, list => [...list.filter(b => b.id !== one.id), one].slice(-30)).catch(() => undefined)
+      announce($, `${one.name} has signed on.`)
+      play($, 'sounds/signon.wav')
     }
 
     return spawned
@@ -501,6 +556,57 @@ export const register: Register = on => {
     )
   })
 
+  // A collapsed group of tool calls ("Ran 2 agents"): each agent's sign-on above it.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    const agents = e.props.calls.filter(c => isAgentTool(c.tool))
+
+    if (!isGraphical(e.surface) || e.props.isExpanded || agents.length === 0) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    const row = await next(e)
+
+    return (
+      <Box flexDirection="column">
+        {agents.map(c => {
+          const input = (typeof c.input === 'object' && c.input !== null ? c.input : {}) as Record<string, unknown>
+
+          return (
+            <Text color={PURPLE} italic size="footnote">
+              {`${screenNameFor(input.description)} has signed on.`}
+            </Text>
+          )
+        })}
+        {row}
+      </Box>
+    )
+  })
+
+  // An agent's report coming back: its away message, the way a buddy's showed up.
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    const id = e.props.task?.id
+
+    if (!isGraphical(e.surface) || id === undefined) {
+      return next(e)
+    }
+    const buddy = (await read($, buddies)).find(b => b.id === id)
+
+    if (buddy === undefined) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    const row = await next(e)
+
+    return (
+      <Box flexDirection="column">
+        <Text color={PURPLE} italic size="footnote">
+          {`${buddy.name} went away: "${buddy.awayMessage ?? 'brb'}"`}
+        </Text>
+        {row}
+      </Box>
+    )
+  })
+
   // The IM window's chrome, above where you type: title bar, then the toolbar strip.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!isGraphical(e.surface) || e.props.hasSurvey) {
@@ -513,10 +619,15 @@ export const register: Register = on => {
     const idle = await read($, idleMinutes)
     const speak = await read($, isAimSpeak)
 
+    const alert = await read($, buddyAlert)
+
     let status = `Instant Message with ${BUDDY_NAME}`
     let statusColor = GRAY
 
-    if (typing) {
+    if (alert !== null) {
+      status = clip(alert, 60)
+      statusColor = PURPLE
+    } else if (typing) {
       status = `${BUDDY_NAME} is typing...`
       statusColor = BLUE
     } else if (awayText !== null) {
@@ -602,7 +713,12 @@ export const register: Register = on => {
           b.isOnline ? (
             <Text color="#000000" weight="bold">{`   ${b.name}  ✎`}</Text>
           ) : (
-            <Text color={GRAY} italic>{`   ${b.name} (idle)`}</Text>
+            <Box flexDirection="column">
+              <Text color={GRAY} italic>{`   ${b.name} (away)`}</Text>
+              {b.awayMessage !== undefined && (
+                <Text color={GRAY} size="footnote">{`      "${clip(b.awayMessage, 40)}"`}</Text>
+              )}
+            </Box>
           ),
         )}
         <Text weight="bold">▾ Me</Text>

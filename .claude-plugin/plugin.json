@@ -1,1 +1,1 @@
-{ "name": "aim-theme", "version": "0.3.0", "description": "Turns the conversation into a late-90s instant-message window: screen names, buddy list, typing indicator", "author": { "name": "dbish" }, "types": "./types/index.d.ts" }
+{ "name": "aim-theme", "version": "0.4.0", "description": "Turns the conversation into a late-90s instant-message window: screen names, buddy list, typing indicator", "author": { "name": "dbish" }, "types": "./types/index.d.ts" }

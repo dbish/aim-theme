@@ -26,6 +26,10 @@ claude plugin install aim-theme --marketplace dbish/aim-theme
 
 In the desktop app: click **+** next to the prompt box, then **Plugins** → **Add marketplace** with `dbish/aim-theme`, then **Add plugin**.
 
+## Buddy alerts
+
+Every agent Claude starts is a buddy. When one starts, a purple "*name* has signed on." line appears in the chat with the door-open sound. When it finishes, it goes away with an away message taken from its report ("*name* went away: ..."), shown in the IM status strip and under its name in the Buddy List, with the door-close sound.
+
 ## Commands
 
 - `/away <message>`: set an away message (`/away` with no text: you're back)
