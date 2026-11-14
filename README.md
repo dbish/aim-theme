@@ -4,9 +4,9 @@ A Claude Code mod that turns the conversation into a late-90s instant-message wi
 
 Best in the Claude desktop app (the look is light mode only).
 
-![The AIM theme in the Claude desktop app: claudeBot98's timestamped reply with an ASCII "You've Got Mail!" banner, the Buddy List pane, and the IM title bar above the prompt](docs/screenshot.png)
+![The AIM theme in the Claude desktop app: two helper agents sign on in purple, claudeBot98's timestamped reply, the Buddy List with one agent away, and an away alert in the IM status strip](docs/screenshot.png)
 
-![Demo: claudeBot98 typing, a helper agent signing on in the Buddy List, and the reply arriving](docs/demo.gif)
+![Demo: sk8rboi2000 asks for a --shout flag, claudeBot98 starts two helper agents that sign on, go away with their away messages, and the reply lands](docs/demo.gif)
 
 ## Install
 

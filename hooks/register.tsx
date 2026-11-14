@@ -94,6 +94,14 @@ const screenNameFor = (description: unknown) => {
   return clip(`${stem}${String(hash).padStart(2, '0')}`, 18)
 }
 
+const isAgentTool = (tool: string) => tool === 'Agent' || tool === 'Task'
+
+const hasDescription = (input: unknown) =>
+  typeof input === 'object' &&
+  input !== null &&
+  typeof (input as Record<string, unknown>).description === 'string' &&
+  ((input as Record<string, unknown>).description as string).trim() !== ''
+
 // What the IM window would have said about each tool call.
 const toolLine = (tool: string, input: Record<string, unknown>, isDone: boolean) => {
   switch (tool) {
@@ -119,6 +127,11 @@ const toolLine = (tool: string, input: Record<string, unknown>, isDone: boolean)
       return `${BUDDY_NAME} is surfing the web: ${clip(String(input.query ?? input.url ?? ''), 50)}`
     case 'Agent':
     case 'Task':
+      // While the call's input is still arriving it has no description yet: no name to sign on with.
+      if (!hasDescription(input)) {
+        return `${BUDDY_NAME} is inviting a buddy...`
+      }
+
       return `${screenNameFor(input.description)} ${isDone ? 'went away.' : 'has signed on.'}`
     default:
       return isDone ? `${BUDDY_NAME} has accepted your request (${tool})` : `${BUDDY_NAME} sent a request: ${tool}`
@@ -231,7 +244,7 @@ const awayFrom = (answer: string) => {
   return clip(sentence.replace(/[.]+$/, ''), 70) || 'brb'
 }
 
-const isAgentTool = (tool: string) => tool === 'Agent' || tool === 'Task'
+
 
 // The time a message first showed up. Kept in memory, since drawing may not
 // write state; a reload stamps older messages with the reload's time.
@@ -558,7 +571,7 @@ export const register: Register = on => {
 
   // A collapsed group of tool calls ("Ran 2 agents"): each agent's sign-on above it.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    const agents = e.props.calls.filter(c => isAgentTool(c.tool))
+    const agents = e.props.calls.filter(c => isAgentTool(c.tool) && hasDescription(c.input))
 
     if (!isGraphical(e.surface) || e.props.isExpanded || agents.length === 0) {
       return next(e)
