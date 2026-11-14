@@ -1,0 +1,6 @@
+{
+  "name": "aim-theme",
+  "description": "A late-90s instant-message theme for Claude Code",
+  "owner": { "name": "dbish" },
+  "plugins": [{ "name": "aim-theme", "source": "./" }]
+}
