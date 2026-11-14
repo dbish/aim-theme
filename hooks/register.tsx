@@ -221,7 +221,7 @@ const announce = ($: EngineInterface, text: string) => {
 const awayFrom = (answer: string) => {
   const line = answer
     .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/[*_`#>]/g, '')
+    .replace(/[*`#>]|\*\*|__/g, '')
     .replace(/(?:~|\.{0,2})?\/(?:[\w.@-]+\/)+([\w.@-]+)/g, '$1')
     .split('\n')
     .map(l => l.trim())
